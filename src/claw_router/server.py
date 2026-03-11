@@ -1,23 +1,39 @@
-"""FastAPI application."""
+"""FastAPI application with monitoring, logging, and security."""
 
 from __future__ import annotations
 
-import logging
+import os
+import time
+import uuid
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import FastAPI, Request
+import structlog
+from fastapi import Depends, FastAPI, HTTPException, Request, Security
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from prometheus_fastapi_instrumentator import Instrumentator
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+from starlette.middleware.base import BaseHTTPMiddleware
+
 from claw_router import __version__
 from claw_router.breaker import CircuitBreaker
 from claw_router.config import AppConfig, load_config
 from claw_router.dashboard import render_dashboard
 from claw_router.health import HealthChecker
-from claw_router.router import has_image_content, parse_model, resolve_target
+from claw_router.logging_config import setup_logging
+from claw_router.router import parse_model, resolve_target
 from claw_router.upstream import UpstreamError, call_upstream
 
-logger = logging.getLogger(__name__)
+# 初始化日志
+setup_logging(json_logs=True, log_level="INFO")
+log = structlog.get_logger()
+
+# 安全配置
+security = HTTPBearer(auto_error=False)
 
 # Global state
 _config: AppConfig | None = None
@@ -33,6 +49,51 @@ def get_config() -> AppConfig:
     return _config
 
 
+def verify_api_key(credentials: HTTPAuthorizationCredentials = Security(security)) -> str:
+    """Verify API key from Authorization header."""
+    api_keys_str = os.getenv("API_KEYS", "")
+    if not api_keys_str:
+        # 如果未配置 API keys，跳过验证
+        return "anonymous"
+
+    api_keys = [k.strip() for k in api_keys_str.split(",") if k.strip()]
+
+    if not credentials:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing Authorization header",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if credentials.credentials not in api_keys:
+        log.warning("invalid_api_key", provided_key=credentials.credentials[:8] + "...")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return credentials.credentials
+
+
+class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+    """Middleware to limit request body size."""
+
+    def __init__(self, app, max_size: int = 10 * 1024 * 1024):  # 10MB
+        super().__init__(app)
+        self.max_size = max_size
+
+    async def dispatch(self, request: Request, call_next):
+        if request.headers.get("content-length"):
+            content_length = int(request.headers["content-length"])
+            if content_length > self.max_size:
+                log.warning("request_too_large", size=content_length)
+                return JSONResponse(
+                    status_code=413, content={"error": {"message": "Request too large"}}
+                )
+        return await call_next(request)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _client, _health
@@ -40,72 +101,148 @@ async def lifespan(app: FastAPI):
     _client = httpx.AsyncClient()
     _health = HealthChecker(cfg)
     _health.start()
-    logger.info(f"[router] Claw Router v{__version__} started")
+    log.info("claw_router_started", version=__version__)
     for cap, ms in cfg.routes.items():
-        logger.info(f"[router]   {cap}: {' > '.join(ms)}")
+        log.info("route_configured", capability=cap, models=" > ".join(ms))
     yield
+    log.info("claw_router_stopping")
     await _health.stop()
     await _client.aclose()
 
 
 app = FastAPI(title="Claw Router", version=__version__, lifespan=lifespan)
+
+# CORS 配置
+cors_origins = os.getenv("CORS_ORIGINS", "*")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
+    allow_origins=cors_origins.split(",") if cors_origins != "*" else ["*"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
+    max_age=3600,
 )
+
+# 请求大小限制
+app.add_middleware(RequestSizeLimitMiddleware, max_size=10 * 1024 * 1024)
+
+# Prometheus 监控
+instrumentator = Instrumentator(
+    should_group_status_codes=False,
+    should_ignore_untemplated=True,
+    should_respect_env_var=True,
+    should_instrument_requests_inprogress=True,
+    excluded_handlers=["/metrics"],
+    env_var_name="ENABLE_METRICS",
+    inprogress_name="http_requests_inprogress",
+    inprogress_labels=True,
+)
+instrumentator.instrument(app).expose(app, endpoint="/metrics")
+
+# 速率限制
+rate_limit = os.getenv("RATE_LIMIT_PER_MINUTE", "100")
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=[f"{rate_limit}/minute"],
+    storage_uri="memory://",
+)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 @app.post("/v1/chat/completions")
-async def chat_completions(request: Request):
+@limiter.limit(f"{rate_limit}/minute")
+async def chat_completions(request: Request, api_key: str = Depends(verify_api_key)):
+    # 生成 request_id
+    request_id = str(uuid.uuid4())[:8]
+    structlog.contextvars.bind_contextvars(
+        request_id=request_id, api_key=api_key[:8] + "..." if api_key != "anonymous" else "anonymous"
+    )
+
     cfg = get_config()
 
     try:
         body = await request.json()
     except Exception:
+        log.error("invalid_json_request")
         return JSONResponse(status_code=400, content={"error": {"message": "Invalid JSON"}})
 
     stream = body.get("stream", False)
     upstream, model_id, target_model = resolve_target(body, cfg, _breaker)
 
-    logger.info(
-        f"[route] -> {upstream}:{model_id} "
-        f"(req: {body.get('model', 'none')}, stream: {stream})"
+    log.info(
+        "request_received",
+        method="POST",
+        path="/v1/chat/completions",
+        requested_model=body.get("model", "none"),
+        target_model=target_model,
+        upstream=upstream,
+        stream=stream,
     )
+
+    start_time = time.time()
 
     try:
         result = await call_upstream(
             _client, cfg, upstream, model_id, body, stream, target_model, _breaker
         )
+
+        duration = time.time() - start_time
+        log.info(
+            "request_completed",
+            status=200,
+            duration_ms=int(duration * 1000),
+            upstream=upstream,
+            model=model_id,
+        )
+
+        if stream:
+            from starlette.responses import StreamingResponse
+
+            async def event_generator():
+                async for chunk in result:
+                    if isinstance(chunk, str):
+                        yield chunk.encode()
+                    else:
+                        yield chunk
+
+            return StreamingResponse(
+                event_generator(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
+        else:
+            return JSONResponse(content=result)
+
     except UpstreamError as e:
+        duration = time.time() - start_time
+        log.error(
+            "upstream_error",
+            status=e.status_code,
+            duration_ms=int(duration * 1000),
+            error=str(e),
+        )
         return JSONResponse(status_code=e.status_code, content=e.body)
     except ValueError as e:
+        duration = time.time() - start_time
+        log.error(
+            "validation_error",
+            status=400,
+            duration_ms=int(duration * 1000),
+            error=str(e),
+        )
         return JSONResponse(status_code=400, content={"error": {"message": str(e)}})
     except Exception as e:
-        logger.error(f"[upstream] unexpected error: {e}")
+        duration = time.time() - start_time
+        log.error(
+            "unexpected_error",
+            status=502,
+            duration_ms=int(duration * 1000),
+            error=str(e),
+        )
         return JSONResponse(
             status_code=502,
             content={"error": {"message": f"Upstream error: {e}", "type": "proxy_error"}},
         )
-
-    if stream:
-        from starlette.responses import StreamingResponse
-
-        async def event_generator():
-            async for chunk in result:
-                if isinstance(chunk, str):
-                    yield chunk.encode()
-                else:
-                    yield chunk
-
-        return StreamingResponse(
-            event_generator(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
-    else:
-        return JSONResponse(content=result)
 
 
 @app.get("/v1/models")
@@ -120,30 +257,38 @@ async def list_models():
             if m not in seen:
                 seen.add(m)
                 upstream, model_id = parse_model(m, set(cfg.hubs.keys()))
-                models.append({
-                    "id": m,
-                    "object": "model",
-                    "owned_by": {"ark": "volcengine", "cli": "cliproxy", "hub": "free-llm-hub"}.get(upstream, upstream),
-                    "upstream": upstream,
-                    "model_id": model_id,
-                    "capability": cap,
-                    "vision": m not in cfg.no_vision,
-                    "circuit_open": _breaker.is_open(m),
-                })
+                models.append(
+                    {
+                        "id": m,
+                        "object": "model",
+                        "owned_by": {
+                            "ark": "volcengine",
+                            "cli": "cliproxy",
+                            "hub": "free-llm-hub",
+                        }.get(upstream, upstream),
+                        "upstream": upstream,
+                        "model_id": model_id,
+                        "capability": cap,
+                        "vision": m not in cfg.no_vision,
+                        "circuit_open": _breaker.is_open(m),
+                    }
+                )
 
     for hub_name in cfg.hubs:
         hub_id = f"hub:{hub_name}"
         if hub_id not in seen:
             seen.add(hub_id)
-            models.append({
-                "id": hub_id,
-                "object": "model",
-                "owned_by": "free-llm-hub",
-                "upstream": "hub",
-                "model_id": cfg.hubs[hub_name].model,
-                "capability": "manual",
-                "circuit_open": _breaker.is_open(hub_id),
-            })
+            models.append(
+                {
+                    "id": hub_id,
+                    "object": "model",
+                    "owned_by": "free-llm-hub",
+                    "upstream": "hub",
+                    "model_id": cfg.hubs[hub_name].model,
+                    "capability": "manual",
+                    "circuit_open": _breaker.is_open(hub_id),
+                }
+            )
 
     return {"object": "list", "data": models}
 
