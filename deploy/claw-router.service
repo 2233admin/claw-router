@@ -1,0 +1,14 @@
+[Unit]
+Description=Claw Router - Intelligent LLM API Router
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/claw-router
+ExecStart=/usr/local/bin/claw-router serve --port 3456
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
