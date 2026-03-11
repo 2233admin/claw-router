@@ -39,12 +39,12 @@ class AppConfig:
 
 
 def _resolve_env(value: str) -> str:
-    """Replace ${VAR} with environment variable value."""
+    """Replace ${VAR} or ${VAR:-default} with environment variable value."""
     if not isinstance(value, str):
         return value
-    match = re.fullmatch(r'\$\{(\w+)\}', value)
+    match = re.fullmatch(r'\$\{(\w+)(?::-([^}]*))?\}', value)
     if match:
-        return os.getenv(match.group(1), "")
+        return os.getenv(match.group(1), match.group(2) or "")
     return value
 
 

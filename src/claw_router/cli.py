@@ -67,7 +67,7 @@ def health():
 
 @cli.command()
 def deploy():
-    """Deploy to production (43.156.202.94)."""
+    """Deploy to production server (set DEPLOY_TARGET env var)."""
     import subprocess
     import sys
     from pathlib import Path
