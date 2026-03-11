@@ -19,8 +19,10 @@ class HealthChecker:
         self.interval = interval
         self.status: dict[str, dict] = {}
         self._task: asyncio.Task | None = None
+        self._client: httpx.AsyncClient | None = None
 
     def start(self) -> None:
+        self._client = httpx.AsyncClient(timeout=10)
         self._task = asyncio.create_task(self._loop())
 
     async def stop(self) -> None:
@@ -30,6 +32,8 @@ class HealthChecker:
                 await self._task
             except asyncio.CancelledError:
                 pass
+        if self._client:
+            await self._client.aclose()
 
     async def _loop(self) -> None:
         while True:
@@ -37,44 +41,33 @@ class HealthChecker:
             await asyncio.sleep(self.interval)
 
     async def _check_all(self) -> None:
-        async with httpx.AsyncClient(timeout=10) as client:
-            for name, hub in self.config.hubs.items():
-                start = time.monotonic()
-                try:
-                    resp = await client.get(f"{hub.base}/v1/models")
-                    latency = (time.monotonic() - start) * 1000
-                    self.status[name] = {
-                        "ok": resp.status_code < 400,
-                        "status_code": resp.status_code,
-                        "latency_ms": round(latency, 1),
-                        "checked_at": time.time(),
-                    }
-                except Exception as e:
-                    self.status[name] = {
-                        "ok": False,
-                        "error": str(e),
-                        "latency_ms": -1,
-                        "checked_at": time.time(),
-                    }
+        client = self._client
+        if client is None:
+            return
+        for name, hub in self.config.hubs.items():
+            await self._ping(client, name, f"{hub.base}/v1/models")
+        for name, upstream in self.config.upstreams.items():
+            await self._ping(client, f"upstream:{name}", upstream.base, follow=True)
 
-            for name, upstream in self.config.upstreams.items():
-                start = time.monotonic()
-                try:
-                    resp = await client.get(upstream.base, follow_redirects=True)
-                    latency = (time.monotonic() - start) * 1000
-                    self.status[f"upstream:{name}"] = {
-                        "ok": resp.status_code < 500,
-                        "status_code": resp.status_code,
-                        "latency_ms": round(latency, 1),
-                        "checked_at": time.time(),
-                    }
-                except Exception as e:
-                    self.status[f"upstream:{name}"] = {
-                        "ok": False,
-                        "error": str(e),
-                        "latency_ms": -1,
-                        "checked_at": time.time(),
-                    }
+    async def _ping(self, client: httpx.AsyncClient, key: str, url: str,
+                    follow: bool = False, threshold: int = 400) -> None:
+        start = time.monotonic()
+        try:
+            resp = await client.get(url, follow_redirects=follow)
+            latency = (time.monotonic() - start) * 1000
+            self.status[key] = {
+                "ok": resp.status_code < threshold,
+                "status_code": resp.status_code,
+                "latency_ms": round(latency, 1),
+                "checked_at": time.time(),
+            }
+        except Exception as e:
+            self.status[key] = {
+                "ok": False,
+                "error": str(e),
+                "latency_ms": -1,
+                "checked_at": time.time(),
+            }
 
     def get_status(self) -> dict:
         return dict(self.status)

@@ -9,8 +9,6 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
-from sse_starlette.sse import EventSourceResponse
-
 from claw_router import __version__
 from claw_router.breaker import CircuitBreaker
 from claw_router.config import AppConfig, load_config
@@ -92,14 +90,19 @@ async def chat_completions(request: Request):
         )
 
     if stream:
+        from starlette.responses import StreamingResponse
+
         async def event_generator():
             async for chunk in result:
-                yield chunk
+                if isinstance(chunk, str):
+                    yield chunk.encode()
+                else:
+                    yield chunk
 
-        return EventSourceResponse(
+        return StreamingResponse(
             event_generator(),
             media_type="text/event-stream",
-            sep="",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
     else:
         return JSONResponse(content=result)
