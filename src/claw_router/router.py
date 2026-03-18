@@ -93,7 +93,7 @@ def resolve_target(
     target_model = pick_model(capability, config.routes, breaker)
 
     if requested_model and requested_model not in ("auto", "router", "claw-router"):
-        clean = requested_model.replace("volcengine-plan/", "")
+        clean = requested_model.replace("volcengine-plan/", "").removeprefix("openai/")
         clean = config.aliases.get(clean, clean)
         if clean in config.no_vision and has_image_content(body.get("messages", [])):
             target_model = pick_model("vision", config.routes, breaker)

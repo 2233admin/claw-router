@@ -63,3 +63,73 @@ hubs:
     base: "${HUB_GEMINI_BASE:-http://localhost:8020}"
     model: gemini-3.0-flash-thinking
     auth: ""
+
+  # OpenRouter free — Heavy (70B+) — KEY1/KEY2 交替分散限流
+  or-hermes-405b:
+    base: "http://100.80.58.61:8443/api"
+    model: nousresearch/hermes-3-llama-3.1-405b:free
+    auth: "${OPENROUTER_KEY}"
+  or-gpt-oss-120b:
+    base: "http://100.80.58.61:8443/api"
+    model: openai/gpt-oss-120b:free
+    auth: "${OPENROUTER_KEY2}"
+  or-nemotron-120b:
+    base: "http://100.80.58.61:8443/api"
+    model: nvidia/nemotron-3-super-120b-a12b:free
+    auth: "${OPENROUTER_KEY}"
+  or-llama-70b:
+    base: "http://100.80.58.61:8443/api"
+    model: meta-llama/llama-3.3-70b-instruct:free
+    auth: "${OPENROUTER_KEY2}"
+  # OpenRouter free — Code
+  or-qwen-coder:
+    base: "http://100.80.58.61:8443/api"
+    model: qwen/qwen3-coder:free
+    auth: "${OPENROUTER_KEY}"
+  or-gpt-oss-20b:
+    base: "http://100.80.58.61:8443/api"
+    model: openai/gpt-oss-20b:free
+    auth: "${OPENROUTER_KEY2}"
+  # OpenRouter free — Fast
+  or-step-flash:
+    base: "http://100.80.58.61:8443/api"
+    model: stepfun/step-3.5-flash:free
+    auth: "${OPENROUTER_KEY}"
+  or-glm-air:
+    base: "http://100.80.58.61:8443/api"
+    model: z-ai/glm-4.5-air:free
+    auth: "${OPENROUTER_KEY2}"
+  or-gemma-27b:
+    base: "http://100.80.58.61:8443/api"
+    model: google/gemma-3-27b-it:free
+    auth: "${OPENROUTER_KEY}"
+  or-gemma-12b:
+    base: "http://100.80.58.61:8443/api"
+    model: google/gemma-3-12b-it:free
+    auth: "${OPENROUTER_KEY2}"
+  or-mistral-24b:
+    base: "http://100.80.58.61:8443/api"
+    model: mistralai/mistral-small-3.1-24b-instruct:free
+    auth: "${OPENROUTER_KEY}"
+  or-minimax:
+    base: "http://100.80.58.61:8443/api"
+    model: minimax/minimax-m2.5:free
+    auth: "${OPENROUTER_KEY2}"
+  # OpenRouter free — Long context / Router
+  or-hunter:
+    base: "http://100.80.58.61:8443/api"
+    model: openrouter/hunter-alpha
+    auth: "${OPENROUTER_KEY}"
+  or-free:
+    base: "http://100.80.58.61:8443/api"
+    model: openrouter/free
+    auth: "${OPENROUTER_KEY2}"
+  # OpenRouter free — Reasoning
+  or-qwen3-next:
+    base: "http://100.80.58.61:8443/api"
+    model: qwen/qwen3-next-80b-a3b-instruct:free
+    auth: "${OPENROUTER_KEY}"
+  or-nemotron-nano:
+    base: "http://100.80.58.61:8443/api"
+    model: nvidia/nemotron-nano-9b-v2:free
+    auth: "${OPENROUTER_KEY2}"
