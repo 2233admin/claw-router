@@ -106,3 +106,9 @@ signals:
   code: '(?:\b(?:code|debug|function|class|import|def |async |await |console\.|print\(|implement|refactor|bug|error|exception|stack.?trace|compile|syntax|```|typescript|python|javascript|rust|golang|java|html|css|sql)\b|写代码|调试|报错|函数|编译|重构)'
   reasoning: '(?:\b(?:analyze|reason|think|step.by.step|explain why|compare|evaluate|pros.and.cons|trade.?off|architecture|design|plan|strategy)\b|分析|推理|为什么|比较|权衡|架构|设计)'
   fast: '(?:\b(?:translate|summarize|hello|hi|hey|thanks|yes|no|ok)\b|翻译|总结|你好|谢谢|是的|好的)'
+
+classifier:
+  enabled: true
+  model: "doubao-seed-2.0-lite"
+  timeout: 2.0
+  fallback_max_retries: 3
