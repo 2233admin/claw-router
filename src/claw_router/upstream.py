@@ -89,6 +89,8 @@ def _prepare_request(
         headers = {"Content-Type": "application/json"}
         if hub_cfg.auth:
             headers["Authorization"] = f"Bearer {hub_cfg.auth}"
+        if hub_cfg.extra_headers:
+            headers.update(hub_cfg.extra_headers)
         payload = json.dumps(hub_body).encode()
 
     else:

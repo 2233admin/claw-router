@@ -43,18 +43,66 @@ hubs:
     model: kimi-k2.5
     auth: "${ARK_API_KEY}"
 
-  # --- GLM-5 (mydamoxing.cn) ---
+  # --- 联通中转站 8.130.53.188 (27模型, T0-T3) ---
   glm-5:
-    base: "https://mydamoxing.cn/v1"
-    model: glm-5
-    auth: "${GLM5_KEY}"
-  glm-5-turbo:
-    base: "https://mydamoxing.cn/v1"
-    model: glm-5-turbo
-    auth: "${GLM5_KEY}"
+    base: "http://8.130.53.188:3000/v1"
+    model: GLM-5
+    auth: "${UNICOM_KEY}"
+  kimi-k2.5-unicom:
+    base: "http://8.130.53.188:3000/v1"
+    model: Kimi-K2.5
+    auth: "${UNICOM_KEY}"
+  deepseek-v3.2-unicom:
+    base: "http://8.130.53.188:3000/v1"
+    model: DeepSeek-V3.2
+    auth: "${UNICOM_KEY}"
+  qwen3-coder:
+    base: "http://8.130.53.188:3000/v1"
+    model: Qwen3-Coder
+    auth: "${UNICOM_KEY}"
+  # Tier 1 (联通中转, hub name 不能以 gpt-/claude- 开头)
+  o54-med:
+    base: "http://8.130.53.188:3000/v1"
+    model: "gpt-5.4(medium)"
+    auth: "${UNICOM_KEY}"
+  o53-codex-med:
+    base: "http://8.130.53.188:3000/v1"
+    model: "gpt-5.3-codex(medium)"
+    auth: "${UNICOM_KEY}"
+  # 第二个联通 key (codex 分组, 0.4x 倍率)
+  o53-codex-med-b:
+    base: "http://8.130.53.188:3000/v1"
+    model: "gpt-5.3-codex(medium)"
+    auth: "${UNICOM_KEY2}"
+  o54-med-b:
+    base: "http://8.130.53.188:3000/v1"
+    model: "gpt-5.4(medium)"
+    auth: "${UNICOM_KEY2}"
+  deepseek-v3.2-unicom-b:
+    base: "http://8.130.53.188:3000/v1"
+    model: DeepSeek-V3.2
+    auth: "${UNICOM_KEY2}"
+  sonnet46-unicom:
+    base: "http://8.130.53.188:3000/v1"
+    model: claude-sonnet-4-6
+    auth: "${UNICOM_KEY}"
 
   # --- MiniMax (codexcc.top) ---
   minimax-m2.7:
     base: "https://api.codexcc.top/v1"
     model: MiniMax-M2.7-highspeed
     auth: "${MINIMAX_KEY}"
+
+  # --- Kimi Code (官方, 需 User-Agent: claude-code) ---
+  kimi-code:
+    base: "https://api.kimi.com/coding/v1"
+    model: kimi-k2
+    auth: "${KIMI_CODE_KEY}"
+    extra_headers:
+      User-Agent: "claude-code/1.0"
+  kimi-code-2:
+    base: "https://api.kimi.com/coding/v1"
+    model: kimi-k2
+    auth: "${KIMI_CODE_KEY2}"
+    extra_headers:
+      User-Agent: "claude-code/1.0"

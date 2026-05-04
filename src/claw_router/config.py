@@ -28,6 +28,7 @@ class HubConfig:
     base: str
     model: str
     auth: str
+    extra_headers: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -178,6 +179,7 @@ def load_config(config_dir: Path | None = None, env_file: Path | None = None) ->
                 base=h["base"],
                 model=h["model"],
                 auth=_resolve_env(h.get("auth", "")),
+                extra_headers={k: _resolve_env(v) for k, v in (h.get("extra_headers") or {}).items()},
             )
 
     # Load routes.yaml
